@@ -47,6 +47,8 @@ applet-token = ["applet"]
 dbus-config = []
 # Debug features
 debug = ["iced/debug"]
+# Enables iced hot patching support.
+hot = ["iced/hot"]
 # Enables pipewire support in ashpd, if ashpd is enabled
 pipewire = ["ashpd?/pipewire"]
 # Enables process spawning helper
