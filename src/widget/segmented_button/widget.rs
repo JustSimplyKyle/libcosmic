@@ -24,6 +24,7 @@ use iced::{
 use iced_core::id::Internal;
 use iced_core::mouse::ScrollDelta;
 use iced_core::text::{self, Ellipsize, LineHeight, Renderer as TextRenderer, Shaping, Wrapping};
+use iced_core::time::{Duration, Instant};
 use iced_core::widget::operation::Focusable;
 use iced_core::widget::{self, Tree, operation, tree};
 use iced_core::{
@@ -39,7 +40,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 thread_local! {
     // Prevents two segmented buttons from being focused at the same time.
