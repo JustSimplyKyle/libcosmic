@@ -99,6 +99,8 @@ surface-message = []
 multi-window = []
 # Render with wgpu
 wgpu = ["iced/wgpu", "iced_wgpu"]
+# Browser runtime and WebGL-compatible wgpu backend.
+web = ["winit", "wgpu", "iced/webgl"]
 # X11 window support via winit
 winit = ["iced/winit", "iced_winit"]
 winit_debug = ["winit", "debug"]

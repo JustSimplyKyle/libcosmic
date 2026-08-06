@@ -207,6 +207,9 @@ impl Config {
             known_folders::get_known_folder_path(known_folders::KnownFolder::ProgramFilesCommon)
                 .map(|x| x.join("COSMIC").join(&path));
 
+        #[cfg(not(any(unix, windows)))]
+        let system_path = None;
+
         Ok(Self {
             system_path,
             user_path: None,
@@ -239,6 +242,9 @@ impl Config {
         let system_path =
             known_folders::get_known_folder_path(known_folders::KnownFolder::ProgramFilesCommon)
                 .map(|x| x.join("COSMIC").join(&path));
+
+        #[cfg(not(any(unix, windows)))]
+        let system_path = None;
 
         // Get libcosmic user configuration directory
         let mut user_path = get_config_dir().ok_or(Error::NoConfigDirectory)?;

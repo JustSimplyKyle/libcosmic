@@ -1,7 +1,7 @@
 [submodule "iced"]
 	path = iced
-	url = https://github.com/pop-os/iced.git
-	branch = master
+	url = https://github.com/JustSimplyKyle/iced.git
+	branch = cosmic-web
 [submodule "icon-theme"]
 	path = cosmic-icons
 	url = https://github.com/pop-os/cosmic-icons
