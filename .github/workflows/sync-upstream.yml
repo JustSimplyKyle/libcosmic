@@ -25,7 +25,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Fetch upstreams and detect changes
+      - name: Fetch upstreams and rebase
         id: changes
         shell: bash
         run: |
@@ -53,7 +53,8 @@ jobs:
             exit 0
           fi
 
-          git merge --no-edit upstream/master
+          echo "expected=$(git rev-parse origin/cosmic-web)" >> "$GITHUB_OUTPUT"
+          git rebase upstream/master
           git -C iced checkout --detach origin/cosmic-web
           git add iced
           echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -83,4 +84,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh auth setup-git
-          git push origin HEAD:cosmic-web
+          git push --force-with-lease=cosmic-web:${{ steps.changes.outputs.expected }} origin HEAD:cosmic-web
