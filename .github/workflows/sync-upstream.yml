@@ -72,7 +72,7 @@ jobs:
       - name: Commit dependency metadata
         if: steps.changes.outputs.changed == 'true'
         run: |
-          git add iced Cargo.lock
+          git add iced
           if ! git diff --cached --quiet; then
             git commit -m "Update iced cosmic-web"
           fi
