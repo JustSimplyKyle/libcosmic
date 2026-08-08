@@ -1,0 +1,86 @@
+name: Sync upstream and iced into cosmic-web
+
+on:
+  schedule:
+    - cron: "1-59/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-cosmic-web
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out cosmic-web
+        uses: actions/checkout@v6
+        with:
+          ref: cosmic-web
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Fetch upstreams and detect changes
+        id: changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/pop-os/libcosmic.git
+          git fetch --no-tags upstream master
+
+          git -C iced remote set-url origin https://github.com/JustSimplyKyle/iced.git
+          git -C iced fetch --no-tags origin cosmic-web
+
+          upstream_changed=false
+          iced_changed=false
+
+          if ! git merge-base --is-ancestor upstream/master HEAD; then
+            upstream_changed=true
+          fi
+
+          if [ "$(git rev-parse HEAD:iced)" != "$(git -C iced rev-parse origin/cosmic-web)" ]; then
+            iced_changed=true
+          fi
+
+          if [ "$upstream_changed" = false ] && [ "$iced_changed" = false ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git merge --no-edit upstream/master
+          git -C iced checkout --detach origin/cosmic-web
+          git add iced
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          rustflags: ""
+
+      - name: Check libcosmic
+        if: steps.changes.outputs.changed == 'true'
+        run: cargo check --package libcosmic --no-default-features
+
+      - name: Commit dependency metadata
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git add iced Cargo.lock
+          if ! git diff --cached --quiet; then
+            git commit -m "Update iced cosmic-web"
+          fi
+
+      - name: Push cosmic-web
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git push origin HEAD:cosmic-web
