@@ -10,7 +10,7 @@ use crate::widget::{Column, container};
 use iced::Task;
 use iced_core::Element;
 use slotmap::{SlotMap, new_key_type};
-use widget::Toaster;
+pub use widget::Toaster;
 
 use super::{button, column, icon, row, text};
 
@@ -20,7 +20,7 @@ mod widget;
 pub fn toaster<'a, Message: Clone + 'static>(
     toasts: &'a Toasts<Message>,
     content: impl Into<Element<'a, Message, crate::Theme, iced::Renderer>>,
-) -> Element<'a, Message, crate::Theme, iced::Renderer> {
+) -> Toaster<'a, Message, crate::Theme, iced::Renderer> {
     let theme = crate::theme::active();
     let cosmic_theme::Spacing {
         space_xxxs,
@@ -53,16 +53,25 @@ pub fn toaster<'a, Message: Clone + 'static>(
             .class(crate::style::Container::Tooltip)
     };
 
-    let col = toasts
+    let active_toasts = toasts
         .queue
         .iter()
         .filter_map(|id| Some((*id, toasts.toasts.get(*id)?)))
-        .rev()
+        .rev();
+
+    let exiting_toast = toasts
+        .exiting
+        .as_ref()
+        .filter(|_| toasts.queue.is_empty())
+        .map(|(id, toast)| (*id, toast));
+
+    let col = active_toasts
+        .chain(exiting_toast)
         .map(make_toast)
         .fold(column::with_capacity(toasts.toasts.len()), Column::push)
         .spacing(space_xxxs);
 
-    Toaster::new(col.into(), content.into(), toasts.toasts.is_empty()).into()
+    Toaster::new(col.into(), content.into(), toasts.toasts.is_empty())
 }
 
 /// Duration for the [`Toast`]
@@ -155,6 +164,7 @@ new_key_type! { pub struct ToastId; }
 pub struct Toasts<Message> {
     toasts: SlotMap<ToastId, Toast<Message>>,
     queue: VecDeque<ToastId>,
+    exiting: Option<(ToastId, Toast<Message>)>,
     on_close: fn(ToastId) -> Message,
     limit: usize,
 }
@@ -165,6 +175,7 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
         Self {
             toasts: SlotMap::with_capacity_and_key(limit),
             queue: VecDeque::new(),
+            exiting: None,
             on_close,
             limit,
         }
@@ -172,6 +183,8 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
 
     /// Add a new [`Toast`]
     pub fn push(&mut self, toast: Toast<Message>) -> Task<Message> {
+        self.exiting = None;
+
         while self.toasts.len() >= self.limit {
             self.toasts.remove(
                 self.queue
@@ -202,9 +215,15 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
 
     /// Remove a [`Toast`]
     pub fn remove(&mut self, id: ToastId) {
-        self.toasts.remove(id);
+        let removed = self.toasts.remove(id);
         if let Some(pos) = self.queue.iter().position(|key| *key == id) {
             self.queue.remove(pos);
+        }
+
+        if self.queue.is_empty()
+            && let Some(toast) = removed
+        {
+            self.exiting = Some((id, toast));
         }
     }
 }

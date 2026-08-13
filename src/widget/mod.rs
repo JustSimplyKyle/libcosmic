@@ -312,7 +312,7 @@ pub use text_input::{
 
 pub mod toaster;
 #[doc(inline)]
-pub use toaster::{Toast, ToastId, Toasts, toaster};
+pub use toaster::{Toast, ToastId, Toaster, Toasts, toaster};
 
 mod toggler;
 #[doc(inline)]

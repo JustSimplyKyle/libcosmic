@@ -149,6 +149,8 @@ pub mod font;
 
 #[doc(inline)]
 pub use iced;
+#[doc(inline)]
+pub use iced_anim;
 
 pub mod icon_theme;
 pub mod keyboard_nav;

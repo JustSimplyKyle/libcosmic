@@ -4,19 +4,30 @@
 use iced::{Limits, Size};
 use iced_core::layout::Node;
 
-use iced_core::event::{self, Event};
+use iced_anim::{Animated, Motion};
+use iced_core::event::Event;
 use iced_core::renderer::{self};
 use iced_core::widget::Operation;
-use iced_core::widget::tree::Tree;
+use iced_core::widget::tree::{self, Tree};
 use iced_core::{
     Clipboard, Element, Layout, Length, Overlay, Point, Rectangle, Shell, Vector, Widget, layout,
-    mouse, overlay,
+    mouse, overlay, window,
 };
+
+const HIDDEN: f32 = 0.0;
+const VISIBLE: f32 = 1.0;
+
+#[derive(Debug)]
+struct State {
+    animation: Animated<f32>,
+    is_empty: bool,
+}
 
 pub struct Toaster<'a, Message, Theme, Renderer> {
     toasts: Element<'a, Message, Theme, Renderer>,
     content: Element<'a, Message, Theme, Renderer>,
     is_empty: bool,
+    animation: Animated<f32>,
 }
 
 impl<'a, Message, Theme, Renderer> Toaster<'a, Message, Theme, Renderer> {
@@ -29,7 +40,18 @@ impl<'a, Message, Theme, Renderer> Toaster<'a, Message, Theme, Renderer> {
             toasts,
             content,
             is_empty,
+            animation: Animated::spring(HIDDEN, Motion::SMOOTH),
         }
+    }
+
+    /// Sets the animation used when the toaster is shown.
+    ///
+    /// The animation value is treated as a visibility progress, where `0.0` is
+    /// hidden and `1.0` is fully visible. Its target is managed by the toaster.
+    #[must_use]
+    pub fn animation(mut self, animation: Animated<f32>) -> Self {
+        self.animation = animation;
+        self
     }
 }
 
@@ -38,6 +60,20 @@ impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: iced_core::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<State>()
+    }
+
+    fn state(&self) -> tree::State {
+        let mut animation = self.animation.clone();
+        animation.set_target(if self.is_empty { HIDDEN } else { VISIBLE });
+
+        tree::State::new(State {
+            animation,
+            is_empty: self.is_empty,
+        })
+    }
+
     fn size(&self) -> Size<Length> {
         self.content.as_widget().size()
     }
@@ -79,6 +115,14 @@ where
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        let state = tree.state.downcast_mut::<State>();
+        if state.is_empty != self.is_empty {
+            state.is_empty = self.is_empty;
+            state
+                .animation
+                .set_target(if self.is_empty { HIDDEN } else { VISIBLE });
+        }
+
         tree.diff_children(&mut [&mut self.content, &mut self.toasts]);
     }
 
@@ -114,7 +158,16 @@ where
             clipboard,
             shell,
             viewport,
-        )
+        );
+
+        let state = state.state.downcast_mut::<State>();
+        if let Event::Window(window::Event::RedrawRequested(now)) = event {
+            if state.animation.is_animating() {
+                state.animation.tick(*now);
+                shell.invalidate_layout();
+                shell.request_redraw();
+            }
+        }
     }
 
     fn mouse_interaction(
@@ -142,8 +195,10 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        let animation = &state.state.downcast_ref::<State>().animation;
+
         //TODO: this hides the overlay of the content during the toast
-        if self.is_empty {
+        if self.is_empty && !animation.is_animating() {
             self.content.as_widget_mut().overlay(
                 &mut state.children[0],
                 layout,
@@ -152,11 +207,12 @@ where
                 translation,
             )
         } else {
-            let bounds = layout.bounds();
+            let progress = *animation.value();
 
             Some(overlay::Element::new(Box::new(ToasterOverlay::new(
                 &mut state.children[1],
                 &mut self.toasts,
+                progress,
             ))))
         }
     }
@@ -180,14 +236,23 @@ where
 struct ToasterOverlay<'a, 'b, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
     state: &'b mut Tree,
     element: &'b mut Element<'a, Message, Theme, Renderer>,
+    progress: f32,
 }
 
 impl<'a, 'b, Message, Theme, Renderer> ToasterOverlay<'a, 'b, Message, Theme, Renderer>
 where
     Renderer: renderer::Renderer,
 {
-    fn new(state: &'b mut Tree, element: &'b mut Element<'a, Message, Theme, Renderer>) -> Self {
-        Self { state, element }
+    fn new(
+        state: &'b mut Tree,
+        element: &'b mut Element<'a, Message, Theme, Renderer>,
+        progress: f32,
+    ) -> Self {
+        Self {
+            state,
+            element,
+            progress,
+        }
     }
 }
 
@@ -208,7 +273,7 @@ where
 
         let position = Point::new(
             (bounds.width / 2.) - (node.size().width / 2.),
-            bounds.height - (node.size().height + offset),
+            bounds.height - (node.size().height + offset) * self.progress,
         );
 
         node.move_to(position)
@@ -286,9 +351,7 @@ where
     Theme: 'a,
     Message: 'a,
 {
-    fn from(
-        toaster: Toaster<'a, Message, Theme, Renderer>,
-    ) -> Element<'a, Message, Theme, Renderer> {
+    fn from(toaster: Toaster<'a, Message, Theme, Renderer>) -> Self {
         Element::new(toaster)
     }
 }
