@@ -1,5 +1,13 @@
 use crate::iced::{Length, Pixels};
 use crate::{Element, style, theme, widget};
+use iced_anim::{Animated, Motion};
+use iced_core::event::Event;
+use iced_core::renderer::Renderer as _;
+use iced_core::widget::tree::{self, Tree};
+use iced_core::{
+    Clipboard, Layout, Rectangle, Shell, Size, Transformation, Vector, Widget, layout, mouse,
+    overlay, renderer, window,
+};
 use std::borrow::Cow;
 
 pub fn dialog<'a, Message>() -> Dialog<'a, Message> {
@@ -19,6 +27,7 @@ pub struct Dialog<'a, Message> {
     max_width: Option<Pixels>,
     max_height: Option<Pixels>,
     is_overlay: bool,
+    animation: Animated<f32>,
 }
 
 impl<Message> Default for Dialog<'_, Message> {
@@ -42,6 +51,7 @@ impl<'a, Message> Dialog<'a, Message> {
             max_width: None,
             max_height: None,
             is_overlay: true,
+            animation: Animated::spring(0.0, Motion::SMOOTH),
         }
     }
 
@@ -104,6 +114,16 @@ impl<'a, Message> Dialog<'a, Message> {
         self.is_overlay = is_overlay;
         self
     }
+
+    /// Sets the animation used when the dialog is shown.
+    ///
+    /// The animation value is treated as pop progress, where `0.0` is slightly
+    /// smaller and lower than its final position and `1.0` is fully shown.
+    #[must_use]
+    pub fn animation(mut self, animation: Animated<f32>) -> Self {
+        self.animation = animation;
+        self
+    }
 }
 
 impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Message> {
@@ -114,16 +134,17 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
             space_s,
             space_xxs,
             ..
-        } = theme::THEME.lock().unwrap().cosmic().spacing;
+        } = theme::active().cosmic().spacing;
 
         let mut content_col = widget::column::with_capacity(3 + dialog.controls.len() * 2);
 
-        let mut should_space = false;
-
-        if let Some(title) = dialog.title {
+        let mut should_space = if let Some(title) = dialog.title {
             content_col = content_col.push(widget::text::title3(title));
-            should_space = true;
-        }
+            true
+        } else {
+            false
+        };
+
         if let Some(body) = dialog.body {
             if should_space {
                 content_col = content_col
@@ -165,7 +186,7 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
             widget::column::with_children([content_row.into(), button_row.into()]).spacing(space_l),
         )
         .class(style::Container::Dialog(dialog.is_overlay))
-        .padding(space_m)
+        .padding(space_l)
         .width(dialog.width.unwrap_or(Length::Fixed(570.0)));
 
         if let Some(height) = dialog.height {
@@ -180,6 +201,209 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
             container = container.max_height(max_height);
         }
 
-        Element::from(container)
+        Pop::new(container, dialog.animation).into()
     }
+}
+
+#[derive(Debug)]
+struct PopState {
+    animation: Animated<f32>,
+}
+
+/// An internal wrapper that provides a dialog with persistent pop-in state.
+struct Pop<'a, Message> {
+    content: Element<'a, Message>,
+    animation: Animated<f32>,
+}
+
+impl<'a, Message> Pop<'a, Message> {
+    fn new(content: impl Into<Element<'a, Message>>, animation: Animated<f32>) -> Self {
+        Self {
+            content: content.into(),
+            animation,
+        }
+    }
+}
+
+impl<Message: 'static> Widget<Message, crate::Theme, crate::Renderer> for Pop<'_, Message> {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<PopState>()
+    }
+
+    fn state(&self) -> tree::State {
+        let mut animation = self.animation.clone();
+        animation.settle_at(0.0);
+        animation.set_target(1.0);
+        tree::State::new(PopState { animation })
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_mut(&mut self.content));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &crate::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &crate::Renderer,
+        operation: &mut dyn iced_core::widget::Operation<()>,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut crate::Renderer,
+        theme: &crate::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let transformation = pop_transformation(
+            layout.bounds(),
+            *tree.state.downcast_ref::<PopState>().animation.value(),
+        );
+        let inverse = transformation.inverse();
+        renderer.with_transformation(transformation, |renderer| {
+            self.content.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                layout,
+                cursor * inverse,
+                &(*viewport * inverse),
+            );
+        });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &crate::Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let transformation = pop_transformation(
+            layout.bounds(),
+            *tree.state.downcast_ref::<PopState>().animation.value(),
+        );
+        let inverse = transformation.inverse();
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor * inverse,
+            renderer,
+            clipboard,
+            shell,
+            &(*viewport * inverse),
+        );
+
+        if let Event::Window(window::Event::RedrawRequested(now)) = event {
+            let state = tree.state.downcast_mut::<PopState>();
+            if state.animation.is_animating() {
+                state.animation.tick(*now);
+                shell.request_redraw();
+            }
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &crate::Renderer,
+    ) -> mouse::Interaction {
+        let transformation = pop_transformation(
+            layout.bounds(),
+            *tree.state.downcast_ref::<PopState>().animation.value(),
+        );
+        let inverse = transformation.inverse();
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor * inverse,
+            &(*viewport * inverse),
+            renderer,
+        )
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &crate::Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, crate::Theme, crate::Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+
+    fn drag_destinations(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        renderer: &crate::Renderer,
+        dnd_rectangles: &mut iced_core::clipboard::DndDestinationRectangles,
+    ) {
+        self.content.as_widget().drag_destinations(
+            &tree.children[0],
+            layout,
+            renderer,
+            dnd_rectangles,
+        );
+    }
+}
+
+impl<'a, Message: 'static> From<Pop<'a, Message>> for Element<'a, Message> {
+    fn from(pop: Pop<'a, Message>) -> Self {
+        Element::new(pop)
+    }
+}
+
+fn pop_transformation(bounds: Rectangle, progress: f32) -> Transformation {
+    let progress = progress.clamp(0.0, 1.0);
+    let scale = 0.96 + 0.04 * progress;
+    let offset_y = 24.0 * (1.0 - progress);
+    let center = bounds.center();
+
+    Transformation::translate(center.x, center.y + offset_y)
+        * Transformation::scale(scale)
+        * Transformation::translate(-center.x, -center.y)
 }
