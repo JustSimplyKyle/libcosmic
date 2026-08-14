@@ -902,8 +902,47 @@ impl<T: Application> Cosmic<T> {
             Action::Maximize => return self.app.core().toggle_maximize(None),
 
             Action::NavBar(key) => {
+                let current_position = self.app.core().nav_bar_content_transition().value();
+                let transition = self.app.nav_model().and_then(|model| {
+                    let from = *current_position;
+                    let to = super::nav_bar_position(model, key)?;
+                    (from != to).then_some((from, to))
+                });
+
+                if let Some((from, to)) = transition {
+                    self.app
+                        .core_mut()
+                        .nav_bar_start_content_transition(from, to);
+                }
+
                 self.app.core_mut().nav_bar_set_toggled_condensed(false);
-                return self.app.on_nav_select(key);
+                let task = self.app.on_nav_select(key);
+
+                return if let Some((from, _)) = transition {
+                    Task::batch([
+                        task,
+                        iced::widget::scrollable::snap_to(
+                            iced_core::widget::Id::new(super::NAV_CONTENT_TRANSITION_ID),
+                            iced::widget::scrollable::RelativeOffset {
+                                x: None,
+                                y: Some(from),
+                            },
+                        ),
+                    ])
+                } else {
+                    task
+                };
+            }
+            Action::NavBarContentTransition(event) => {
+                let position = self.app.core_mut().nav_bar_update_content_transition(event);
+
+                return iced::widget::scrollable::snap_to(
+                    iced_core::widget::Id::new(super::NAV_CONTENT_TRANSITION_ID),
+                    iced::widget::scrollable::RelativeOffset {
+                        x: None,
+                        y: Some(position.clamp(0.0, 1.0)),
+                    },
+                );
             }
 
             Action::NavBarContext(key) => {

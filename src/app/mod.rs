@@ -12,6 +12,7 @@ use cosmic_config::CosmicConfigEntry;
 pub mod context_drawer;
 pub use context_drawer::{ContextDrawer, context_drawer};
 use iced::application::BootFn;
+use iced_widget::keyed_column;
 pub mod cosmic;
 pub mod settings;
 
@@ -28,6 +29,69 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+const NAV_CONTENT_TRANSITION_ID: &str = "COSMIC_nav_content_transition";
+
+pub(crate) fn nav_bar_position(model: &nav_bar::Model, id: nav_bar::Id) -> Option<f32> {
+    let index = model.position(id)?;
+    let denominator = model.len().saturating_sub(1).max(1) as f32;
+    Some(f32::from(index) / denominator)
+}
+
+fn navigation_content<App: Application>(app: &App) -> Element<'_, App::Message> {
+    let core = app.core();
+
+    let Some(model) = app.nav_model() else {
+        return app.view();
+    };
+
+    if !model.contains_item(model.active()) {
+        return app.view();
+    }
+
+    let animation = core.nav_bar_content_transition();
+
+    let ids = model.iter().collect::<Vec<_>>();
+    if ids.is_empty() {
+        return app.view();
+    }
+
+    let position = animation.value().clamp(0.0, 1.0);
+    let page_position = position * ids.len().saturating_sub(1) as f32;
+    let first_visible = page_position.floor() as usize;
+    let last_visible = page_position.ceil() as usize;
+
+    crate::widget::responsive(move |size| {
+        let pages = crate::widget::column::with_children(
+            ids.iter()
+                .copied()
+                .enumerate()
+                .map(|(index, id)| {
+                    if (first_visible..=last_visible).contains(&index) {
+                        container(app.nav_view(id))
+                            .height(size.height)
+                            .width(Length::Fill)
+                            .into()
+                    } else {
+                        container(space::vertical())
+                            .height(size.height)
+                            .width(Length::Fill)
+                            .into()
+                    }
+                })
+                .collect::<Vec<Element<'_, App::Message>>>(),
+        );
+
+        crate::widget::scrollable(pages)
+            .id(iced_core::widget::Id::new(NAV_CONTENT_TRANSITION_ID))
+            .height(size.height)
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::hidden(),
+            ))
+            .into()
+    })
+    .into()
+}
+
 #[cold]
 pub(crate) fn iced_settings<App: Application>(
     settings: Settings,
@@ -41,6 +105,7 @@ pub(crate) fn iced_settings<App: Application>(
     core.set_scale_factor(settings.scale_factor);
     core.set_window_width(settings.size.width);
     core.set_window_height(settings.size.height);
+    core.nav_bar_set_content_transition(settings.nav_bar_content_transition);
 
     if let Some(icon_theme) = settings.default_icon_theme {
         crate::icon_theme::set_default(icon_theme);
@@ -418,6 +483,15 @@ where
         None
     }
 
+    /// Builds the page associated with a navigation model entity.
+    ///
+    /// This is used when `Settings::nav_bar_content_transition` is configured.
+    /// During a transition, COSMIC only calls this for the one or two visible
+    /// pages; all other model entities are represented by empty placeholders.
+    fn nav_view(&self, _id: nav_bar::Id) -> Element<'_, Self::Message> {
+        self.view()
+    }
+
     /// Called before closing the application. Returning a message will override closing windows.
     fn on_app_exit(&mut self) -> Option<Self::Message> {
         None
@@ -660,7 +734,7 @@ impl<App: Application> ApplicationExt for App {
             };
 
             if self.nav_model().is_none() || core.show_content() {
-                let main_content = self.view();
+                let main_content = navigation_content(self);
 
                 //TODO: reduce duplication
                 let context_width = core.context_width(has_nav);
@@ -884,7 +958,25 @@ impl<App: Application> ApplicationExt for App {
         }
 
         let view_element: Element<_> = popover.into();
-        view_element.debug(core.debug)
+        let animation =
+            iced_anim::animation::animation(core.nav_bar_content_transition(), view_element)
+                // sends `Event::Tick` if spring is moving
+                .on_update(|event| crate::Action::Cosmic(Action::NavBarContentTransition(event)));
+        if let Some(model) = self.nav_model()
+            && let Some(target) = nav_bar_position(model, model.active())
+        {
+            iced::widget::Sensor::new(animation)
+                .key(model.active())
+                .on_show(move |_| {
+                    crate::Action::Cosmic(Action::NavBarContentTransition(
+                        iced_anim::Event::Target(target),
+                    ))
+                })
+                .apply(Element::from)
+        } else {
+            animation.apply(Element::from)
+        }
+        .debug(core.debug)
     }
 }
 

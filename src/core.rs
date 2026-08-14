@@ -8,6 +8,7 @@ use cosmic_config::CosmicConfigEntry;
 use cosmic_theme::ThemeMode;
 use enumflags2::{self, BitFlags, bitflags};
 use iced::{Limits, Size, window};
+use iced_anim::{Animated, Motion};
 use iced_core::window::Id;
 use palette::Srgba;
 use slotmap::Key;
@@ -21,6 +22,7 @@ pub struct NavBar {
     context_id: crate::widget::nav_bar::Id,
     toggled: bool,
     toggled_condensed: bool,
+    content_transition: Animated<f32>,
 }
 
 /// COSMIC-specific settings for windows.
@@ -142,6 +144,7 @@ impl Default for Core {
                 context_id: crate::widget::nav_bar::Id::null(),
                 toggled: true,
                 toggled_condensed: false,
+                content_transition: Animated::default(),
             },
             scale_factor: 1.0,
             title: HashMap::new(),
@@ -195,6 +198,34 @@ impl Default for Core {
 }
 
 impl Core {
+    pub(crate) fn nav_bar_set_content_transition(&mut self, motion: Motion) {
+        self.nav_bar.content_transition = Animated::spring(0.0, motion);
+    }
+    pub(crate) fn nav_bar_content_transition(&self) -> &Animated<f32> {
+        &self.nav_bar.content_transition
+    }
+
+    pub(crate) fn nav_bar_start_content_transition(&mut self, from: f32, to: f32) {
+        let animation = &mut self.nav_bar.content_transition;
+
+        if animation.is_animating() {
+            animation.set_target(to);
+        } else {
+            animation.settle_at(from);
+            animation.set_target(to);
+        }
+    }
+
+    pub(crate) fn nav_bar_update_content_transition(
+        &mut self,
+        event: iced_anim::Event<f32>,
+    ) -> f32 {
+        let animation = &mut self.nav_bar.content_transition;
+
+        animation.update(event);
+        *animation.value()
+    }
+
     /// Whether the window is too small for the nav bar + main content.
     #[must_use]
     #[inline]

@@ -34,6 +34,8 @@ pub enum Action {
     Minimize,
     /// Activates a navigation element from the nav bar.
     NavBar(nav_bar::Id),
+    /// Advances the navigation content transition.
+    NavBarContentTransition(iced_anim::Event<f32>),
     /// Activates a context menu for an item from the nav bar.
     NavBarContext(nav_bar::Id),
     /// A new window was opened.

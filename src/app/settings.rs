@@ -4,6 +4,7 @@
 //! Configure a new COSMIC application.
 
 use crate::{Theme, font};
+use iced_anim::Motion;
 use iced_core::Font;
 use iced_core::layout::Limits;
 
@@ -65,6 +66,9 @@ pub struct Settings {
 
     /// Whether the application should act as a daemon
     pub(crate) is_daemon: bool,
+
+    /// Whether navigation content should animate between selected pages.
+    pub(crate) nav_bar_content_transition: Motion,
 }
 
 impl Settings {
@@ -100,6 +104,7 @@ impl Default for Settings {
             transparent: true,
             exit_on_close: true,
             is_daemon: true,
+            nav_bar_content_transition: Motion::INSTANT,
         }
     }
 }
