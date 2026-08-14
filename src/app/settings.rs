@@ -67,6 +67,9 @@ pub struct Settings {
     /// Whether the application should act as a daemon
     pub(crate) is_daemon: bool,
 
+    /// Motion used by built-in widget animations.
+    pub(crate) animation: Motion,
+
     /// Whether navigation content should animate between selected pages.
     pub(crate) nav_bar_content_transition: Motion,
 }
@@ -104,6 +107,7 @@ impl Default for Settings {
             transparent: true,
             exit_on_close: true,
             is_daemon: true,
+            animation: Motion::SMOOTH,
             nav_bar_content_transition: Motion::INSTANT,
         }
     }

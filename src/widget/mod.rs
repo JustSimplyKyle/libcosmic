@@ -98,6 +98,10 @@ pub use iced_core::widget::{Id, Operation, Widget};
 
 pub mod aspect_ratio;
 
+pub mod animations;
+#[doc(inline)]
+pub use animations::Pop;
+
 #[cfg(feature = "autosize")]
 pub mod autosize;
 

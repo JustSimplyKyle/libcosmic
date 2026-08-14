@@ -106,6 +106,7 @@ pub(crate) fn iced_settings<App: Application>(
     core.set_window_width(settings.size.width);
     core.set_window_height(settings.size.height);
     core.nav_bar_set_content_transition(settings.nav_bar_content_transition);
+    crate::widget::animations::set_motion(settings.animation);
 
     if let Some(icon_theme) = settings.default_icon_theme {
         crate::icon_theme::set_default(icon_theme);
